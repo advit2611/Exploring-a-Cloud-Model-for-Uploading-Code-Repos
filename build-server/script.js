@@ -34,17 +34,17 @@ async function init() {
     const distFolderPathConents = fs.readdirSync(distFolderPath, {
       recursive: true,
     });
-    for (const filePath of distFolderPathConents) {
-      const file = path.join(distFolderPath, filePath)
-      if (fs.lstatSync(file).isDirectory()) continue;
+    for (const file of distFolderPathConents) {
+      const filePath = path.join(distFolderPath, file)
+      if (fs.lstatSync(filePath).isDirectory()) continue;
 
       console.log("Uploading", file);
 
       const command = new PutObjectCommand({
         Bucket: "vercel-clone-advit",
-        Key: `__outputs/${PROJECT_ID}${file}`,
-        ContentType: mime.lookup(file),
-        Body: fs.createReadStream(file),
+        Key: `__outputs/${PROJECT_ID}/${file}`,
+        ContentType: mime.lookup(filePath),
+        Body: fs.createReadStream(filePath),
       });
 
       await s3Client.send(command);
