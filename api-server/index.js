@@ -1,6 +1,25 @@
 const express = require("express");
 const { generateSlug } = require("random-word-slugs");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
+const { Server } = require("socket.io");
+const Redis = require("ioredis");
+
+const subscriber = new Redis(
+  "rediss://default:AVNS_4-C4hF49AxftNHDFaJB@redis-2f0074d3-advit214-ea63.a.aivencloud.com:19639"
+);
+
+const io = new Server({ cors: "*" });
+
+
+io.on("connection", (socket) => {
+  socket.on("subscribe", (channel) => {
+    socket.join(channel);
+    socket.emit("message", `Joined ${channel}`);
+  });
+});
+
+io.listen(9001, () => console.log(`Socket Server 9001 Started`));
+
 
 const app = express();
 PORT = 9000;
@@ -55,7 +74,20 @@ app.post("/project", async (req, res) => {
   });
   await ecsClient.send(command);
 
-  return res.json({ staus: "queued", data: { projectSlug, url: `http://${projectSlug}.localhost:8080` } });
+  return res.json({
+    staus: "queued",
+    data: { projectSlug, url: `http://${projectSlug}.localhost:8080` },
+  });
 });
+
+async function initRedisSubscribe() {
+  console.log(`Subscribed to logs...`);
+  subscriber.psubscribe('logs:*');
+  subscriber.on("pmessage", (pattern, channel, message) => {
+    io.to(channel).emit("message", message);
+  });
+}
+
+initRedisSubscribe();
 
 app.listen(PORT, () => console.log(`API Server Started...${PORT}!!!`));
