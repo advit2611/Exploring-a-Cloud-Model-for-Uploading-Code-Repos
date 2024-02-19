@@ -13,8 +13,10 @@
     "@clickhouse/client": "^0.2.9",
     "@prisma/client": "^5.9.1",
     "express": "^4.18.2",
+    "kafkajs": "^2.2.4",
     "random-word-slugs": "^0.1.7",
     "socket.io": "^4.7.4",
+    "uuid": "^9.0.1",
     "zod": "^3.22.4"
   },
   "devDependencies": {

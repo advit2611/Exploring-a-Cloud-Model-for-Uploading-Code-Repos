@@ -23,7 +23,7 @@ model project {
   name         String
   gitURL       String        @map("git_url")
   subDomain    String        @map("sub_domain")
-  customDomain String        @map("custom_domain")
+  customDomain String?       @map("custom_domain")
   deployments  deployments[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt

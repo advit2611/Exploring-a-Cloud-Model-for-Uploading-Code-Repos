@@ -2,21 +2,39 @@ const express = require("express");
 const { generateSlug } = require("random-word-slugs");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
 const { Server } = require("socket.io");
-const { z, object } = require("zod");
+const { z } = require("zod");
 const { PrismaClient } = require("@prisma/client");
-const { connect } = require("http2");
-const { createClient, createClient } = require("@clickhouse/client");
+const { createClient } = require("@clickhouse/client");
+const { Kafka } = require("kafkajs");
+const { v4: uuid } = require("uuid");
+const fs = require("fs");
+const path = require("path");
 
 const io = new Server({ cors: "*" });
 
 const prisma = new PrismaClient();
 
-const create = createClient({
-  host:'https://clickhouse-1a88e59b-advit214-ea63.a.aivencloud.com',
-  database:'default',
-  username:'avnadmin',
-  password:'AVNS_2g6i7e1-NpqZUjecpyE'
-})
+const kafka = new Kafka({
+  clientId: `api-server`,
+  brokers: ["kafka-199061c3-advit214-ea63.a.aivencloud.com:19651"],
+  ssl: { ca: [fs.readFileSync(path.join(__dirname, "kafka.pem"), "utf-8")] },
+  sasl: {
+    username: "avnadmin",
+    password: "AVNS_D8D3Gm2lfaiMRRGv0Va",
+    mechanism: "plain",
+  },
+});
+
+const clickHouseClient = createClient({
+  host: "https://clickhouse-1a88e59b-advit214-ea63.a.aivencloud.com:19639",
+  database: "default",
+  username: "avnadmin",
+  password: "AVNS_2g6i7e1-NpqZUjecpyE",
+});
+
+const consumer = kafka.consumer({
+  groupId: "api-server-logs-consumer",
+});
 
 io.on("connection", (socket) => {
   socket.on("subscribe", (channel) => {
@@ -45,13 +63,13 @@ const config = {
 
 app.use(express.json());
 
-app.post("./project", async (req, res) => {
+app.post("/project", async (req, res) => {
   const schema = z.object({
     name: z.string(),
     gitURL: z.string(),
   });
   const safePassResult = schema.safeParse(req.body);
-  if (!safePassResult)
+  if (safePassResult.error)
     return res.status(404).json({ error: safePassResult.error });
   const { name, gitURL } = req.body;
   const project = await prisma.project.create({
@@ -112,18 +130,60 @@ app.post("/deploy", async (req, res) => {
 
   return res.json({
     staus: "queued",
-    data: { projectSlug, url: `http://${projectSlug}.localhost:8080` },
+    data: { deploymentId: deployment.id },
   });
 });
 
-async function initRedisSubscribe() {
-  console.log(`Subscribed to logs...`);
-  subscriber.psubscribe("logs:*");
-  subscriber.on("pmessage", (pattern, channel, message) => {
-    io.to(channel).emit("message", message);
+app.get("/logs/:id", async (req, res) => {
+  const id = req.params.id;
+  const logs = await clickHouseClient.query({
+    query: `SELECT event_id, deployment_id, log, timestamp \
+            FROM log_events\
+            WHERE deployment_id = {deployment_id : String}`,
+    query_params: {
+      deployment_id: id,
+    },
+    format: "JSONEachRow",
+  });
+  const rawLogs = await logs.json();
+  return res.json({ logs: rawLogs });
+});
+
+async function initKafkaConsumer() {
+  await consumer.connect();
+  await consumer.subscribe({
+    topics: ["container-logs"],
+    fromBeginning: true,
+  });
+
+  await consumer.run({
+    eachBatch: async function ({
+      batch,
+      heartbeat,
+      commitOffsetsIfNecessary,
+      resolveOffset,
+    }) {
+      const messages = batch.messages;
+      console.log(`Recieved ${messages.length} messages ...`);
+      for (const message of messages) {
+        const stringMessages = message.value.toString();
+        const { PROJECT_ID, DEPLOYMENT_ID, log } = JSON.parse(stringMessages);
+        console.log({ log, DEPLOYMENT_ID });
+        const { queryId } = await clickHouseClient.insert({
+          table: "log_events ",
+          values: [
+            { event_id: uuid(), deployment_id: DEPLOYMENT_ID, log: log },
+          ],
+          format: "JSONEachRow",
+        });
+        resolveOffset(message.offset);
+        await commitOffsetsIfNecessary(message.offset);
+        await heartbeat();
+      }
+    },
   });
 }
 
-initRedisSubscribe();
+initKafkaConsumer();
 
 app.listen(PORT, () => console.log(`API Server Started...${PORT}!!!`));

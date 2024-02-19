@@ -31,7 +31,7 @@ const producer = kafka.producer();
 
 async function publishLog(log) {
   await producer.send({
-    topic: "contatiner-logs",
+    topic: "container-logs",
     messages: [
       { key: "log", value: JSON.stringify({ PROJECT_ID, DEPLOYMENT_ID, log }) },
     ],
