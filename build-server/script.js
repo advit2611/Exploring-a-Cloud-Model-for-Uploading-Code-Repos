@@ -3,11 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const mime = require("mime-types");
-const Redis = require("ioredis");
-
-const publisher = new Redis(
-  "rediss://default:AVNS_4-C4hF49AxftNHDFaJB@redis-2f0074d3-advit214-ea63.a.aivencloud.com:19639"
-);
+const { Kafka } = require("kafkajs");
 
 const s3Client = new S3Client({
   region: "us-east-1",
@@ -18,37 +14,58 @@ const s3Client = new S3Client({
 });
 
 const PROJECT_ID = process.env.PROJECT_ID;
+const DEPLOYMENT_ID = process.env.DEPLOYMENT_ID;
 
-function publishLog(log) {
-  publisher.publish(`logs:${PROJECT_ID}`, JSON.stringify({ log }));
+const kafka = new Kafka({
+  clientId: `docker-build-server-${DEPLOYMENT_ID}`,
+  brokers: ["kafka-199061c3-advit214-ea63.a.aivencloud.com:19651"],
+  ssl: { ca: [fs.readFileSync(path.join(__dirname, "kafka.pem"), "utf-8")] },
+  sasl: {
+    username: "avnadmin",
+    password: "AVNS_D8D3Gm2lfaiMRRGv0Va",
+    mechanism: "plain",
+  },
+});
+
+const producer = kafka.producer();
+
+async function publishLog(log) {
+  await producer.send({
+    topic: "contatiner-logs",
+    messages: [
+      { key: "log", value: JSON.stringify({ PROJECT_ID, DEPLOYMENT_ID, log }) },
+    ],
+  });
 }
 
 async function init() {
+  await producer.connect();
+
   console.log("Executing script.js");
-  publishLog("Build Started...");
+  await publishLog("Build Started...");
   const outDirPath = path.join(__dirname, "output");
 
   const p = exec(`cd ${outDirPath} && npm install && npm run build`);
 
-  p.stdout.on("data", function (data) {
+  p.stdout.on("data", async function (data) {
     console.log(data.toString());
-    publishLog(data.toString());
+    await publishLog(data.toString());
   });
 
-  p.stdout.on("error", function (data) {
+  p.stdout.on("error", async function (data) {
     console.log("Error", data.toString());
-    publishLog(`Error: ${data.toString()}`);
+    await publishLog(`Error: ${data.toString()}`);
   });
 
   p.on("close", async function () {
     console.log("Build Complete!!!");
-    publishLog("Build Complete");
+    await publishLog("Build Complete");
     const distFolderPath = path.join(__dirname, "output", "dist");
     const distFolderPathConents = fs.readdirSync(distFolderPath, {
       recursive: true,
     });
 
-    publishLog("Starting to Upload");
+    await publishLog("Starting to Upload");
 
     for (const file of distFolderPathConents) {
       const filePath = path.join(distFolderPath, file);
@@ -69,6 +86,7 @@ async function init() {
     }
     publishLog("Done");
     console.log("Done...");
+    process.exit(0);
   });
 }
 

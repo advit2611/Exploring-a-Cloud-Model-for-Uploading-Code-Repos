@@ -2,14 +2,21 @@ const express = require("express");
 const { generateSlug } = require("random-word-slugs");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
 const { Server } = require("socket.io");
-const Redis = require("ioredis");
-
-const subscriber = new Redis(
-  "rediss://default:AVNS_4-C4hF49AxftNHDFaJB@redis-2f0074d3-advit214-ea63.a.aivencloud.com:19639"
-);
+const { z, object } = require("zod");
+const { PrismaClient } = require("@prisma/client");
+const { connect } = require("http2");
+const { createClient, createClient } = require("@clickhouse/client");
 
 const io = new Server({ cors: "*" });
 
+const prisma = new PrismaClient();
+
+const create = createClient({
+  host:'https://clickhouse-1a88e59b-advit214-ea63.a.aivencloud.com',
+  database:'default',
+  username:'avnadmin',
+  password:'AVNS_2g6i7e1-NpqZUjecpyE'
+})
 
 io.on("connection", (socket) => {
   socket.on("subscribe", (channel) => {
@@ -19,7 +26,6 @@ io.on("connection", (socket) => {
 });
 
 io.listen(9001, () => console.log(`Socket Server 9001 Started`));
-
 
 const app = express();
 PORT = 9000;
@@ -39,9 +45,38 @@ const config = {
 
 app.use(express.json());
 
-app.post("/project", async (req, res) => {
-  const { gitURL } = req.body;
-  const projectSlug = generateSlug();
+app.post("./project", async (req, res) => {
+  const schema = z.object({
+    name: z.string(),
+    gitURL: z.string(),
+  });
+  const safePassResult = schema.safeParse(req.body);
+  if (!safePassResult)
+    return res.status(404).json({ error: safePassResult.error });
+  const { name, gitURL } = req.body;
+  const project = await prisma.project.create({
+    data: {
+      name,
+      gitURL,
+      subDomain: generateSlug(),
+    },
+  });
+  return res.json({ status: "success", data: { project } });
+});
+
+app.post("/deploy", async (req, res) => {
+  const { projectId } = req.body;
+
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+
+  if (!project) return res.status(404).json({ error: "Project Not found !!!" });
+
+  const deployment = await prisma.deployments.create({
+    data: {
+      project: { connect: { id: projectId } },
+      status: "QUEUED",
+    },
+  });
 
   // Spin up a new task
   const command = new RunTaskCommand({
@@ -65,8 +100,9 @@ app.post("/project", async (req, res) => {
         {
           name: "builder-image",
           environment: [
-            { name: "GIT_REPOSITORY_URL", value: gitURL },
-            { name: "PROJECT_ID", value: projectSlug },
+            { name: "GIT_REPOSITORY_URL", value: project.gitURL },
+            { name: "PROJECT_ID", value: projectId },
+            { name: "DEPLOYMENT_ID", value: deployment.id },
           ],
         },
       ],
@@ -82,7 +118,7 @@ app.post("/project", async (req, res) => {
 
 async function initRedisSubscribe() {
   console.log(`Subscribed to logs...`);
-  subscriber.psubscribe('logs:*');
+  subscriber.psubscribe("logs:*");
   subscriber.on("pmessage", (pattern, channel, message) => {
     io.to(channel).emit("message", message);
   });
