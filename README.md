@@ -9,7 +9,7 @@
       
 - This Branch implements the Database integeration with Prisma which hosts a PostgresSQL on aivan.io
     - The prisma has 2 Schemas
-        - 1 Schema for Projects
+        - 1 Schema for storing Projects stats
         - 1 Schema for Deployments with a foreign key to Projects table
     - Other Table for Real time logs are implemented via clickhouse
         - These logs are polled from kafka hosted in aivan.io
