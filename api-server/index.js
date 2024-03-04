@@ -20,7 +20,7 @@ const kafka = new Kafka({
   ssl: { ca: [fs.readFileSync(path.join(__dirname, "kafka.pem"), "utf-8")] },
   sasl: {
     username: "avnadmin",
-    password: "AVNS_D8D3Gm2lfaiMRRGv0Va",
+    password: "*********",
     mechanism: "plain",
   },
 });
@@ -29,7 +29,7 @@ const clickHouseClient = createClient({
   host: "https://clickhouse-1a88e59b-advit214-ea63.a.aivencloud.com:19639",
   database: "default",
   username: "avnadmin",
-  password: "AVNS_2g6i7e1-NpqZUjecpyE",
+  password: "*********",
 });
 
 const consumer = kafka.consumer({
@@ -51,8 +51,8 @@ PORT = 9000;
 const ecsClient = new ECSClient({
   region: "us-east-1",
   credentials: {
-    accessKeyId: "AKIA6FC6O5YWGDLGRIX4",
-    secretAccessKey: "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",
+    accessKeyId: process.ENV.ACCESS_KEY_ID,
+    secretAccessKey: process.ENV.SECRET_ACCESS_KEY,
   },
 });
 
